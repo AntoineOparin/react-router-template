@@ -1,87 +1,69 @@
-# Welcome to React Router!
+# React Router App
 
-A modern, production-ready template for building full-stack React applications using React Router.
+Full-stack React app built with React Router v8 (framework mode), Supabase (auth + Postgres),
+Drizzle ORM, shadcn/ui, and Tailwind CSS.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+Conventions for humans and AI agents live in [AGENTS.md](./AGENTS.md) — read it before
+contributing.
 
-## Features
+## Getting started
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
-
-## Getting Started
-
-### Installation
-
-Install the dependencies:
+**Requirements:** Node 24 (`nvm use` reads `.nvmrc`) and a Supabase project.
 
 ```bash
 npm install
+cp .env.example .env   # then fill in the values (see below)
+npm run dev            # http://localhost:5173
 ```
 
-### Development
+### Supabase setup (one-time per project)
 
-Start the development server with HMR:
+1. **Env vars** — in `.env`:
+   - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`: Project Settings → API Keys
+   - `DATABASE_URL`: Connect → ORMs → Drizzle (transaction pooler, port 6543)
+2. **Redirect URLs** — Authentication → URL Configuration: set the Site URL and add
+   `http://localhost:5173/auth/confirm` (plus your production `/auth/confirm` URL).
+3. **Email template (recommended)** — so confirmation links work on any device, set the
+   "Confirm signup" template's link to:
+   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
+4. **Migrations** — after adding tables to `app/db/schema.ts`:
+   ```bash
+   npm run db:generate   # writes SQL to drizzle/
+   npm run db:migrate    # applies it to DATABASE_URL
+   ```
 
-```bash
-npm run dev
-```
+## Scripts
 
-Your application will be available at `http://localhost:5173`.
+| Command                               | What it does                       |
+| ------------------------------------- | ---------------------------------- |
+| `npm run dev`                         | Dev server with HMR                |
+| `npm run check`                       | Typecheck + lint + format check    |
+| `npm test` / `npm run test:watch`     | Run tests (Vitest)                 |
+| `npm run format` / `npm run lint:fix` | Auto-format / auto-fix lint issues |
+| `npm run build` / `npm start`         | Production build / serve it        |
+| `npm run db:generate` / `db:migrate`  | Create / apply database migrations |
+| `npm run db:studio`                   | Browse the database                |
+| `npx shadcn@latest add <component>`   | Add a shadcn/ui component          |
 
-## Building for Production
+A pre-commit hook formats and lints staged files. CI (`.github/workflows/ci.yml`) runs checks,
+tests, and a build on every push to `main` and every pull request.
 
-Create a production build:
+## Editor
 
-```bash
-npm run build
-```
+VS Code formats on save and fixes lint issues automatically — install the recommended extensions
+when prompted. Other editors: enable Prettier format-on-save and ESLint.
 
 ## Deployment
 
-### Docker Deployment
+```bash
+npm run build && npm start
+```
 
-To build and run using Docker:
+Or use the included `Dockerfile`:
 
 ```bash
 docker build -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
+docker run -p 3000:3000 --env-file .env my-app
 ```
 
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
-
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+Set the same env vars as `.env.example` on your hosting platform.

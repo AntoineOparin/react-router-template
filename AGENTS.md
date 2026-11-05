@@ -5,9 +5,13 @@ exactly; when the codebase and this file disagree, ask before "fixing" either.
 
 ## Stack
 
-- **React Router v8, Framework Mode** (SSR on, see `react-router.config.ts`) on Vite
-- React 19, TypeScript (strict), Tailwind CSS v4
-- ESLint (flat config, `eslint.config.js`) + Prettier (`.prettierrc.json`, sorts Tailwind classes)
+- **React Router v8, Framework Mode** (SSR on, see `react-router.config.ts`) on Vite, Node 24
+- React 19, TypeScript (strict), Tailwind CSS v4, **shadcn/ui** (Radix-based) components
+- **Supabase** for auth (`@supabase/ssr`, cookie sessions) and Postgres hosting
+- **Drizzle ORM** (`postgres` driver) for all database access
+- **Zod** for validating anything untrusted (form data, env vars, search params, API payloads)
+- **Vitest** + React Testing Library for tests
+- ESLint + Prettier (sorts Tailwind classes); husky + lint-staged format/lint staged files on commit
 
 For React Router APIs, use the `react-router` skill in `.agents/skills/react-router/SKILL.md` and
 the docs shipped with the installed version in `node_modules/react-router/docs/`. Do not rely on
@@ -16,74 +20,98 @@ memory of older versions (v6/Remix) — check the installed docs.
 ## Commands
 
 ```bash
-npm run dev          # dev server at http://localhost:5173
-npm run check        # typecheck + lint + format check — run before finishing any task
+npm run dev          # dev server at http://localhost:5173 (needs .env — see .env.example)
+npm run check        # typecheck + lint + format check
+npm test             # run tests once (npm run test:watch while developing)
 npm run format       # auto-format everything with Prettier
 npm run lint:fix     # auto-fix lint issues
-npm run typecheck    # regenerate route types + tsc
 npm run build        # production build
+
+npm run db:generate  # create a SQL migration from app/db/schema.ts changes
+npm run db:migrate   # apply pending migrations to DATABASE_URL
+npm run db:studio    # browse the database
+
+npx shadcn@latest add <component>   # add a shadcn/ui component into app/components/ui/
 ```
 
-**Definition of done:** run `npm run format`, then `npm run check`, and fix everything it reports.
+**Definition of done:** run `npm run format`, then `npm run check` and `npm test`, and fix
+everything they report. CI runs the same checks plus `npm run build` on every PR.
 
 ## Folder structure
 
 ```
 app/
-  root.tsx                 # HTML shell, global <Layout>, root ErrorBoundary (framework file)
-  routes.ts                # ALL routes are registered here (framework file)
-  app.css                  # Tailwind entry + theme tokens
+  root.tsx                 # HTML shell, root ErrorBoundary, root middleware (auth)
+  routes.ts                # ALL routes are registered here
+  app.css                  # Tailwind + shadcn theme tokens (light + .dark)
   routes/                  # Route modules ONLY — thin glue between URL and features
-    layout.tsx             # App shell (header + <Outlet />) wrapping most pages
+    layout.tsx             # App shell (header + <Outlet />); loads the current user
+    protected-layout.tsx   # Wraps signed-in-only routes (requireUserMiddleware)
     home.tsx               # /
+    auth/                  # /auth/login, /auth/signup, /auth/confirm, /auth/logout
+    dashboard/index.tsx    # /dashboard (example protected page)
     not-found.tsx          # catch-all 404
   features/                # Business logic grouped by domain (one folder per feature)
+    auth/
+      auth.server.ts       # auth middleware + getUser/requireUser/getSupabase helpers
+      schema.ts            # Zod schemas for auth forms
+      components/          # auth UI (AuthForm)
     <feature>/
       components/          # UI specific to this feature
-      <feature>.server.ts  # Server-only: DB queries, secrets, external APIs
-      schema.ts            # Validation + shared types (safe on client and server)
+      <feature>.server.ts  # Server-only: Drizzle queries, external APIs
+      schema.ts            # Zod schemas + inferred types (safe on client and server)
       utils.ts             # Pure helpers for this feature
   components/
-    ui/                    # Generic, reusable primitives (button, input, dialog…) — no business logic
+    ui/                    # shadcn/ui primitives (button, input, card…) — generated, may be edited
     layout/                # App-shell pieces (site header, footer, nav)
-  lib/                     # Cross-cutting helpers used by many features (e.g. db.server.ts, env.server.ts)
+  db/
+    schema.ts              # Drizzle table definitions (ALL tables)
+    client.server.ts       # `db` instance
+  lib/
+    env.server.ts          # Zod-validated env vars — import `env` from here, never `process.env`
+    supabase.server.ts     # per-request Supabase server client
+    utils.ts               # `cn()` class-name helper (shadcn)
+drizzle/                   # Generated SQL migrations — commit them, never edit by hand
 public/                    # Static files served as-is
 .react-router/             # GENERATED route types — never edit, gitignored
 ```
-
-Empty folders contain a `.gitkeep`; delete it once the folder has real files.
 
 ## Routing
 
 - Register every route in `app/routes.ts` using `index`, `route`, `layout`, `prefix` from
   `@react-router/dev/routes`. **Do not** use file-system routing (`@react-router/fs-routes`).
-- Route module files live in `app/routes/`, with folders mirroring the URL:
-  `/projects` → `routes/projects/index.tsx`, `/projects/:id` → `routes/projects/detail.tsx`,
-  a section layout → `routes/projects/layout.tsx`.
-- Pages that use the app shell go **inside** the `layout("routes/layout.tsx", [...])` block.
+- Route module files mirror the URL: `/projects` → `routes/projects/index.tsx`,
+  `/projects/:id` → `routes/projects/detail.tsx`, a section layout → `routes/projects/layout.tsx`.
+- Public pages go inside `layout("routes/layout.tsx", [...])`. **Signed-in-only pages go inside
+  the nested `layout("routes/protected-layout.tsx", [...])` block.**
 - The `route("*", ...)` catch-all must stay last.
 - Import route types from the generated file next to the module:
   `import type { Route } from "./+types/<file-name>";` (run `npm run typecheck` if missing).
 
 ## Route modules stay thin
 
-A route module may export `loader`, `action`, `meta`, `links`, `headers`, `ErrorBoundary`,
-`handle`, and a default component. It should only:
+A route module may export `middleware`, `loader`, `action`, `meta`, `links`, `headers`,
+`ErrorBoundary`, `handle`, and a default component. It should only:
 
-1. read params/request/form data,
+1. read params/request/form data (validate with Zod),
 2. call functions from `~/features/*` (or `~/lib/*`),
-3. return data / render feature components.
+3. return data / redirect / render feature components.
 
-No database queries, large JSX trees, or business logic directly in route files.
+No Drizzle queries, large JSX trees, or business logic directly in route files.
 
 ```tsx
 // app/routes/projects/detail.tsx
+import { data } from "react-router";
 import type { Route } from "./+types/detail";
+import { requireUser } from "~/features/auth/auth.server";
 import { getProject } from "~/features/projects/projects.server";
 import { ProjectView } from "~/features/projects/components/project-view";
 
-export async function loader({ params }: Route.LoaderArgs) {
-  return { project: await getProject(params.id) };
+export async function loader({ params, context }: Route.LoaderArgs) {
+  const user = requireUser(context);
+  const project = await getProject({ id: params.id, ownerId: user.id });
+  if (!project) throw data(null, { status: 404 });
+  return { project };
 }
 
 export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
@@ -91,55 +119,112 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 }
 ```
 
+## Auth (Supabase)
+
+- `authMiddleware` (in `app/root.tsx`) runs on every server request: it creates a per-request
+  Supabase client, verifies the user with `getClaims()`, and writes refreshed auth cookies onto
+  the response. Don't create Supabase clients anywhere else on the server.
+- In loaders/actions use the helpers from `~/features/auth/auth.server`:
+  - `getUser(context)` → user or `null`
+  - `requireUser(context)` → user (redirects guests); use in protected routes
+  - `getSupabase(context)` → Supabase client for auth/storage calls
+- Protect pages by nesting them under `protected-layout.tsx` in `routes.ts` — not by checking in
+  components. Also call `requireUser` in any action that mutates user data.
+- **Always scope data to the user on the server** (e.g. `where owner_id = user.id`). Drizzle
+  bypasses Row Level Security, so authorization is our code's job.
+- Only redirect to user-supplied paths through `safeRedirectPath()`.
+- Never use `supabase.auth.getSession()` on the server to identify the user.
+- Email links land on `/auth/confirm`. Supabase must allow `<site-url>/auth/confirm` under
+  Authentication → URL Configuration → Redirect URLs.
+
+## Database (Drizzle + Supabase Postgres)
+
+- All tables live in `app/db/schema.ts`. Every table **must** call `.enableRLS()` (blocks
+  Supabase's public Data API; Drizzle still has full access). snake_case column names,
+  camelCase TS properties. Export `$inferSelect`/`$inferInsert` types.
+- Reference users by `uuid` holding the Supabase auth user id (`user.id`).
+- Change schema → `npm run db:generate` → review the SQL in `drizzle/` → `npm run db:migrate`.
+  Commit migrations. Never edit an applied migration; never use `drizzle-kit push` on shared DBs.
+- Import `db` from `~/db/client.server` **only** in `*.server.ts` files (usually
+  `features/<feature>/<feature>.server.ts`). Routes call those functions, not `db` directly.
+
+## Validation (Zod)
+
+- Validate all untrusted input with Zod before using it: form data in actions, search params,
+  JSON bodies, third-party API responses.
+- Define schemas in `features/<feature>/schema.ts`; derive types with `z.infer` rather than
+  writing them twice. Return field errors from actions with `data({ errors }, { status: 400 })`
+  (see `features/auth/schema.ts` + `routes/auth/login.tsx`).
+
+## Environment variables
+
+- Declare every server env var in `app/lib/env.server.ts` (Zod schema) **and** `.env.example`.
+  Import `env` from `~/lib/env.server`; don't read `process.env` elsewhere.
+- Never expose secrets to the browser: no secrets in loader return values or `VITE_*` vars.
+
 ## Server / client boundary
 
-- Anything touching databases, secrets, `process.env`, or the filesystem goes in a file ending in
+- Anything touching the database, secrets, or the filesystem goes in a file ending in
   **`.server.ts`**. The build excludes these from the browser bundle and fails if client code
-  imports them.
-- Only import `*.server.ts` from route `loader`/`action` functions or other `*.server.ts` files.
+  imports them. Only import them from `loader`/`action`/`middleware` or other `.server.ts` files.
 - Browser-only code (uses `window`, `localStorage`, etc.) goes in `*.client.ts` or runs inside
   `useEffect`/event handlers.
-- Never expose secrets through loader return values — everything a loader returns is sent to the
-  browser.
+- Everything a loader returns is sent to the browser — return only what the UI needs.
+
+## UI (shadcn/ui + Tailwind)
+
+- Build UI from `~/components/ui/*` first. Need a new primitive? `npx shadcn@latest add <name>`
+  rather than writing one by hand. Generated files may be edited to fit the design.
+- Use theme tokens (`bg-background`, `text-muted-foreground`, `border`, `text-destructive`…)
+  instead of raw colors, so light/dark themes stay consistent. Theme lives in `app/app.css`.
+- Dark mode is class-based (`.dark` on `<html>`); no toggle is wired up yet.
+- Merge conditional classes with `cn()` from `~/lib/utils`.
 
 ## Code conventions
 
-- **Imports:** use the `~/` alias for anything outside the current folder (`~/features/...`,
-  `~/components/ui/...`). Relative imports only within the same folder/feature.
+- **Imports:** use the `~/` alias for anything outside the current folder. Relative imports only
+  within the same folder/feature.
 - **Feature boundaries:** don't reach into another feature's internals. If two features need the
   same thing, move it to `~/lib` or `~/components/ui`.
 - **File names:** kebab-case (`project-card.tsx`, `projects.server.ts`).
 - **Components:** PascalCase, **named exports**, one component per file. Only route modules use
   `export default`.
 - **Types:** `import type` for type-only imports (required by `verbatimModuleSyntax`). Avoid `any`.
-- **Styling:** Tailwind utility classes in `className`. Global styles/theme tokens only in
-  `app/app.css`. Don't hand-sort classes — Prettier does it.
 - **Data:** prefer `loader`/`action` + `<Form>`/`useFetcher` over `useEffect` + `fetch`.
-- **Errors:** throw `data(..., { status })` from loaders for expected errors (404, 403); the
+- **Errors:** throw `data(null, { status })` from loaders for expected errors (404, 403); the
   nearest `ErrorBoundary` renders them.
-- **Tests:** no test runner is configured yet. When one is added, colocate tests as
-  `<name>.test.ts(x)` next to the code.
 - Unused variables/args are lint warnings; prefix intentionally unused ones with `_`.
+
+## Testing
+
+- Colocate tests as `<name>.test.ts(x)` next to the code (see `features/auth/schema.test.ts`).
+- Unit-test schemas and pure logic; test components with React Testing Library. Wrap components
+  that use `<Link>`/`<Form>` in `createRoutesStub` (see `components/layout/site-header.test.tsx`).
+- Don't import `*.server.ts` files that need env vars or a database in unit tests.
 
 ## Recipes
 
 **Add a page**
 
 1. Create `app/routes/<path>.tsx` with `meta` + default component.
-2. Register it in `app/routes.ts` (inside the app-shell `layout` unless it needs its own shell).
+2. Register it in `app/routes.ts` — inside `protected-layout.tsx` if it requires sign-in.
 3. Run `npm run typecheck` to generate `./+types/<file>`.
 
-**Add a feature**
+**Add a feature with data**
 
-1. Create `app/features/<feature>/` with only the files you need (`components/`,
-   `<feature>.server.ts`, `schema.ts`, `utils.ts`).
-2. Expose data access from `<feature>.server.ts`; call it from route loaders/actions.
-3. Put UI in `features/<feature>/components/`; promote it to `components/ui/` only once it's
-   generic and reused by another feature.
+1. Add the table(s) to `app/db/schema.ts` (with `.enableRLS()`), then `npm run db:generate`.
+2. Create `app/features/<feature>/` with `schema.ts` (Zod), `<feature>.server.ts` (Drizzle
+   queries, always filtered by the user), and `components/`.
+3. Add route(s) whose loaders/actions call the `.server.ts` functions.
+4. Add tests for the schema and any non-trivial logic.
+
+**Add an env var:** add it to the Zod schema in `app/lib/env.server.ts`, to `.env.example`, to
+your local `.env`, and to the hosting platform.
 
 ## Don'ts
 
-- Don't edit `.react-router/`, `build/`, or `package-lock.json` by hand.
+- Don't edit `.react-router/`, `build/`, `drizzle/` migrations, or `package-lock.json` by hand.
 - Don't add dependencies without a clear need; mention any you add in your summary.
 - Don't change ESLint/Prettier/TS config to silence an error — fix the code.
+- Don't bypass the pre-commit hook (`--no-verify`).
 - Don't modify `.agents/skills/` — it's vendored reference material.

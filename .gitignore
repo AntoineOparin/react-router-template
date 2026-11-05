@@ -1,6 +1,10 @@
 .DS_Store
-.env
 /node_modules/
+coverage/
+
+# Env files (keep the example)
+.env*
+!.env.example
 
 # React Router
 /.react-router/

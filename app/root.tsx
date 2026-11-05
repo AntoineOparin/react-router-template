@@ -8,7 +8,11 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { authMiddleware } from "~/features/auth/auth.server";
 import "./app.css";
+
+// Runs on every server request: resolves the Supabase user and refreshes auth cookies.
+export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
