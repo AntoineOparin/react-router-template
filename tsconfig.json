@@ -6,6 +6,11 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    // Also declared here (not only in tsconfig.cloudflare.json) so tools like the shadcn CLI
+    // that only read the root tsconfig resolve the `~/` alias.
+    "paths": {
+      "~/*": ["./app/*"]
+    }
   }
 }
