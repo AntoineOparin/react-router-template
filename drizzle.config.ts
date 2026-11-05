@@ -1,5 +1,6 @@
 import { defineConfig } from "drizzle-kit";
 
+// drizzle-kit runs on your machine (Node), not in the Worker, so it reads .env directly.
 try {
   process.loadEnvFile();
 } catch {

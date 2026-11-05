@@ -8,11 +8,14 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { dbMiddleware } from "~/db/client.server";
 import { authMiddleware } from "~/features/auth/auth.server";
 import "./app.css";
 
-// Runs on every server request: resolves the Supabase user and refreshes auth cookies.
-export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
+// Runs on every server request:
+// - dbMiddleware: per-request Drizzle client (via Hyperdrive)
+// - authMiddleware: resolves the Supabase user and refreshes auth cookies
+export const middleware: Route.MiddlewareFunction[] = [dbMiddleware, authMiddleware];
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },

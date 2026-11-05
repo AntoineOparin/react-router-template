@@ -1,0 +1,32 @@
+/**
+ * Cloudflare Workers config. Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+ * After changing bindings/vars here, run `npm run cf-typegen` to refresh the `Env` types.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "react-router-app",
+  "main": "./workers/app.ts",
+  "compatibility_date": "2026-11-04",
+  // Needed by the `postgres` driver (TCP sockets, Buffer, etc.).
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
+
+  // Supabase Postgres via Hyperdrive (connection pooling for Workers).
+  // Create it once, then paste the id below:
+  //   npx wrangler hyperdrive create react-router-app-db --caching-disabled \
+  //     --connection-string="<Supabase DIRECT connection string>"
+  // (See README → "Deploying to Cloudflare".)
+  // Local dev connects straight to the DB using CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE in .env.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_YOUR_HYPERDRIVE_ID",
+    },
+  ],
+
+  // Secrets are NOT stored here. Set them per environment with:
+  //   npx wrangler secret put SUPABASE_URL
+  //   npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
+  // Locally they come from .env (see .env.example).
+}

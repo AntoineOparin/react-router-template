@@ -5,10 +5,12 @@ exactly; when the codebase and this file disagree, ask before "fixing" either.
 
 ## Stack
 
-- **React Router v8, Framework Mode** (SSR on, see `react-router.config.ts`) on Vite, Node 24
+- **React Router v8, Framework Mode** (SSR on, see `react-router.config.ts`) on Vite
+- **Runs on Cloudflare Workers** (`wrangler.jsonc`, entry `workers/app.ts`). `npm run dev` runs
+  the server code in `workerd`, the real Workers runtime — not Node.
 - React 19, TypeScript (strict), Tailwind CSS v4, **shadcn/ui** (Radix-based) components
 - **Supabase** for auth (`@supabase/ssr`, cookie sessions) and Postgres hosting
-- **Drizzle ORM** (`postgres` driver) for all database access
+- **Drizzle ORM** (`postgres` driver) for all database access, through **Cloudflare Hyperdrive**
 - **Zod** for validating anything untrusted (form data, env vars, search params, API payloads)
 - **Vitest** + React Testing Library for tests
 - ESLint + Prettier (sorts Tailwind classes); husky + lint-staged format/lint staged files on commit
@@ -26,6 +28,9 @@ npm test             # run tests once (npm run test:watch while developing)
 npm run format       # auto-format everything with Prettier
 npm run lint:fix     # auto-fix lint issues
 npm run build        # production build
+npm run preview      # build + run the production build locally in workerd
+npm run deploy       # build + deploy to Cloudflare (wrangler deploy)
+npm run cf-typegen   # regenerate Env types after editing wrangler.jsonc
 
 npm run db:generate  # create a SQL migration from app/db/schema.ts changes
 npm run db:migrate   # apply pending migrations to DATABASE_URL
@@ -40,8 +45,10 @@ everything they report. CI runs the same checks plus `npm run build` on every PR
 ## Folder structure
 
 ```
+workers/app.ts             # Cloudflare Worker entry — hands requests to React Router
+wrangler.jsonc             # Worker config: bindings (HYPERDRIVE), compatibility flags
 app/
-  root.tsx                 # HTML shell, root ErrorBoundary, root middleware (auth)
+  root.tsx                 # HTML shell, root ErrorBoundary, root middleware (db + auth)
   routes.ts                # ALL routes are registered here
   app.css                  # Tailwind + shadcn theme tokens (light + .dark)
   routes/                  # Route modules ONLY — thin glue between URL and features
@@ -66,15 +73,30 @@ app/
     layout/                # App-shell pieces (site header, footer, nav)
   db/
     schema.ts              # Drizzle table definitions (ALL tables)
-    client.server.ts       # `db` instance
+    client.server.ts       # per-request Drizzle client: dbMiddleware + getDb(context)
   lib/
-    env.server.ts          # Zod-validated env vars — import `env` from here, never `process.env`
+    env.server.ts          # Zod-validated secrets — import `env` from here
     supabase.server.ts     # per-request Supabase server client
     utils.ts               # `cn()` class-name helper (shadcn)
 drizzle/                   # Generated SQL migrations — commit them, never edit by hand
 public/                    # Static files served as-is
-.react-router/             # GENERATED route types — never edit, gitignored
+.react-router/, worker-configuration.d.ts   # GENERATED types — never edit, gitignored
 ```
+
+## Runtime: Cloudflare Workers (read before writing server code)
+
+- **No state between requests.** Never keep DB clients, Supabase clients, caches, or per-user
+  data in module-level variables. Create per-request things in middleware and pass them via
+  `context` (see `dbMiddleware`, `authMiddleware`).
+- **Not Node.** `nodejs_compat` covers common modules (`Buffer`, `crypto`, `node:*` basics), but
+  there is no filesystem, no `process.loadEnvFile`, no long-running timers, no native addons.
+  Before adding a dependency, check it supports Cloudflare Workers.
+- **Bindings and secrets** come from `import { env } from "cloudflare:workers"`. Only import
+  `cloudflare:workers` in `*.server.ts` files (never in components or tests).
+- **Background work after the response:** `import { waitUntil } from "cloudflare:workers"`.
+- **CPU budget:** the free plan allows ~10 ms of CPU per request (waiting on network/DB doesn't
+  count). Keep heavy computation out of request handling.
+- After editing `wrangler.jsonc`, run `npm run cf-typegen` so the `Env` types stay accurate.
 
 ## Routing
 
@@ -103,13 +125,14 @@ No Drizzle queries, large JSX trees, or business logic directly in route files.
 // app/routes/projects/detail.tsx
 import { data } from "react-router";
 import type { Route } from "./+types/detail";
+import { getDb } from "~/db/client.server";
 import { requireUser } from "~/features/auth/auth.server";
 import { getProject } from "~/features/projects/projects.server";
 import { ProjectView } from "~/features/projects/components/project-view";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const user = requireUser(context);
-  const project = await getProject({ id: params.id, ownerId: user.id });
+  const project = await getProject(getDb(context), { id: params.id, ownerId: user.id });
   if (!project) throw data(null, { status: 404 });
   return { project };
 }
@@ -137,16 +160,22 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 - Email links land on `/auth/confirm`. Supabase must allow `<site-url>/auth/confirm` under
   Authentication → URL Configuration → Redirect URLs.
 
-## Database (Drizzle + Supabase Postgres)
+## Database (Drizzle + Supabase Postgres via Hyperdrive)
 
 - All tables live in `app/db/schema.ts`. Every table **must** call `.enableRLS()` (blocks
   Supabase's public Data API; Drizzle still has full access). snake_case column names,
   camelCase TS properties. Export `$inferSelect`/`$inferInsert` types.
 - Reference users by `uuid` holding the Supabase auth user id (`user.id`).
+- **Getting the client:** `dbMiddleware` creates one Drizzle client per request. Routes call
+  `getDb(context)` and pass it to feature functions, which take it as their first argument:
+  ```ts
+  // features/projects/projects.server.ts
+  import type { Db } from "~/db/client.server";
+  export async function getProject(db: Db, { id, ownerId }: { id: string; ownerId: string }) { … }
+  ```
+  Never create a `postgres()`/`drizzle()` client yourself or store one in a module variable.
 - Change schema → `npm run db:generate` → review the SQL in `drizzle/` → `npm run db:migrate`.
   Commit migrations. Never edit an applied migration; never use `drizzle-kit push` on shared DBs.
-- Import `db` from `~/db/client.server` **only** in `*.server.ts` files (usually
-  `features/<feature>/<feature>.server.ts`). Routes call those functions, not `db` directly.
 
 ## Validation (Zod)
 
@@ -156,17 +185,21 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
   writing them twice. Return field errors from actions with `data({ errors }, { status: 400 })`
   (see `features/auth/schema.ts` + `routes/auth/login.tsx`).
 
-## Environment variables
+## Environment variables & secrets
 
-- Declare every server env var in `app/lib/env.server.ts` (Zod schema) **and** `.env.example`.
-  Import `env` from `~/lib/env.server`; don't read `process.env` elsewhere.
+- Declare every secret/var in the Zod schema in `app/lib/env.server.ts` **and** in
+  `.env.example`, then import `env` from `~/lib/env.server`. Don't use `process.env` in app code.
+- Local values live in `.env` (loaded into the local Worker by the Cloudflare Vite plugin).
+  Production values: `npx wrangler secret put <NAME>` (or the Cloudflare dashboard).
+- Bindings (e.g. `HYPERDRIVE`) are configured in `wrangler.jsonc`, not as secrets.
 - Never expose secrets to the browser: no secrets in loader return values or `VITE_*` vars.
 
 ## Server / client boundary
 
-- Anything touching the database, secrets, or the filesystem goes in a file ending in
-  **`.server.ts`**. The build excludes these from the browser bundle and fails if client code
-  imports them. Only import them from `loader`/`action`/`middleware` or other `.server.ts` files.
+- Anything touching the database, secrets, `cloudflare:workers`, or external APIs with keys goes
+  in a file ending in **`.server.ts`**. The build excludes these from the browser bundle and
+  fails if client code imports them. Only import them from `loader`/`action`/`middleware` or
+  other `.server.ts` files.
 - Browser-only code (uses `window`, `localStorage`, etc.) goes in `*.client.ts` or runs inside
   `useEffect`/event handlers.
 - Everything a loader returns is sent to the browser — return only what the UI needs.
@@ -200,7 +233,9 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 - Colocate tests as `<name>.test.ts(x)` next to the code (see `features/auth/schema.test.ts`).
 - Unit-test schemas and pure logic; test components with React Testing Library. Wrap components
   that use `<Link>`/`<Form>` in `createRoutesStub` (see `components/layout/site-header.test.tsx`).
-- Don't import `*.server.ts` files that need env vars or a database in unit tests.
+- Vitest runs in Node/jsdom, so tests can't import anything that imports `cloudflare:workers`
+  (`env.server.ts`, `db/client.server.ts`, etc.). Keep logic you want to test in plain modules,
+  and give `.server.ts` functions a `db` parameter so they can be tested with a fake.
 
 ## Recipes
 
@@ -214,17 +249,21 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 
 1. Add the table(s) to `app/db/schema.ts` (with `.enableRLS()`), then `npm run db:generate`.
 2. Create `app/features/<feature>/` with `schema.ts` (Zod), `<feature>.server.ts` (Drizzle
-   queries, always filtered by the user), and `components/`.
-3. Add route(s) whose loaders/actions call the `.server.ts` functions.
+   queries taking `db: Db`, always filtered by the user), and `components/`.
+3. Add route(s) whose loaders/actions call those functions with `getDb(context)`.
 4. Add tests for the schema and any non-trivial logic.
 
-**Add an env var:** add it to the Zod schema in `app/lib/env.server.ts`, to `.env.example`, to
-your local `.env`, and to the hosting platform.
+**Add a secret/env var:** add it to the Zod schema in `app/lib/env.server.ts`, to
+`.env.example`, to your local `.env`, then `npx wrangler secret put <NAME>` for production.
+
+**Add a Cloudflare binding (KV, R2, Queues…):** add it to `wrangler.jsonc`, run
+`npm run cf-typegen`, and read it from `env` in a `.server.ts` file.
 
 ## Don'ts
 
-- Don't edit `.react-router/`, `build/`, `drizzle/` migrations, or `package-lock.json` by hand.
-- Don't add dependencies without a clear need; mention any you add in your summary.
+- Don't edit `.react-router/`, `worker-configuration.d.ts`, `build/`, `drizzle/` migrations, or
+  `package-lock.json` by hand.
+- Don't add dependencies without checking they run on Cloudflare Workers; mention any you add.
 - Don't change ESLint/Prettier/TS config to silence an error — fix the code.
 - Don't bypass the pre-commit hook (`--no-verify`).
 - Don't modify `.agents/skills/` — it's vendored reference material.

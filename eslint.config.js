@@ -6,7 +6,13 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores(["build/", ".react-router/", "node_modules/"]),
+  globalIgnores([
+    "build/",
+    ".react-router/",
+    "node_modules/",
+    ".wrangler/",
+    "worker-configuration.d.ts",
+  ]),
   {
     files: ["**/*.{js,jsx,ts,tsx}"],
     extends: [
