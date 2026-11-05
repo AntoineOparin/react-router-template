@@ -9,6 +9,7 @@ export default [
     ...prefix("auth", [
       route("login", "routes/auth/login.tsx"), // /auth/login
       route("signup", "routes/auth/signup.tsx"), // /auth/signup
+      route("forgot-password", "routes/auth/forgot-password.tsx"), // /auth/forgot-password
       route("confirm", "routes/auth/confirm.tsx"), // /auth/confirm (email link target)
       route("logout", "routes/auth/logout.tsx"), // /auth/logout (POST)
     ]),
@@ -16,6 +17,14 @@ export default [
     // Signed-in users only — add private pages inside this block.
     layout("routes/protected-layout.tsx", [
       route("dashboard", "routes/dashboard/index.tsx"), // /dashboard
+      route("auth/reset-password", "routes/auth/reset-password.tsx"), // /auth/reset-password
+
+      // Example feature (see app/features/notes) — delete if not needed.
+      ...prefix("notes", [
+        index("routes/notes/index.tsx"), // /notes
+        route("new", "routes/notes/new.tsx"), // /notes/new
+        route(":id", "routes/notes/detail.tsx"), // /notes/:id
+      ]),
     ]),
   ]),
 

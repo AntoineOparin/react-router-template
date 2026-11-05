@@ -1,10 +1,11 @@
 import type { Route } from "./+types/home";
+import { pageTitle, site } from "~/lib/site";
 
 export const meta: Route.MetaFunction = () => [
-  { title: "React Router App" },
-  { name: "description", content: "Welcome to React Router!" },
+  { title: pageTitle() },
+  { name: "description", content: site.description },
 ];
 
 export default function Home() {
-  return <h1 className="text-2xl font-semibold">Home</h1>;
+  return <h1 className="text-2xl font-semibold">{site.name}</h1>;
 }

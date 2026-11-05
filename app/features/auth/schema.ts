@@ -1,21 +1,27 @@
 import { z } from "zod";
 
-export const credentialsSchema = z.object({
-  email: z.email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-});
+import { parseForm, type FieldErrors } from "~/lib/forms";
 
+const email = z.email("Enter a valid email address");
+const password = z.string().min(8, "Password must be at least 8 characters");
+
+/** Login and signup. */
+export const credentialsSchema = z.object({ email, password });
 export type Credentials = z.infer<typeof credentialsSchema>;
+export type CredentialsErrors = FieldErrors<Credentials>;
 
-export type CredentialsErrors = Partial<Record<keyof Credentials | "form", string[]>>;
-
-/** Validates a login/signup form. Returns typed data or per-field error messages. */
 export function parseCredentials(formData: FormData) {
-  const result = credentialsSchema.safeParse({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
-
-  if (result.success) return { data: result.data, errors: null };
-  return { data: null, errors: z.flattenError(result.error).fieldErrors as CredentialsErrors };
+  return parseForm(credentialsSchema, formData);
 }
+
+/** "Forgot password" request. */
+export const emailSchema = z.object({ email });
+
+/** Choosing a new password after following a reset link. */
+export const newPasswordSchema = z
+  .object({ password, confirmPassword: z.string() })
+  .refine((values) => values.password === values.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
+export type NewPasswordErrors = FieldErrors<z.input<typeof newPasswordSchema>>;

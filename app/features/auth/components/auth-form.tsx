@@ -63,7 +63,17 @@ export function AuthForm({ mode, errors, message, redirectTo }: AuthFormProps) {
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {mode === "login" && (
+                  <Link
+                    to="/auth/forgot-password"
+                    className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <Input
                 id="password"
                 name="password"

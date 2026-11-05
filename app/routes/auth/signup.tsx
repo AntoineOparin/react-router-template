@@ -4,8 +4,9 @@ import type { Route } from "./+types/signup";
 import { getSupabase, getUser } from "~/features/auth/auth.server";
 import { AuthForm } from "~/features/auth/components/auth-form";
 import { parseCredentials } from "~/features/auth/schema";
+import { pageTitle } from "~/lib/site";
 
-export const meta: Route.MetaFunction = () => [{ title: "Sign up" }];
+export const meta: Route.MetaFunction = () => [{ title: pageTitle("Sign up") }];
 
 export function loader({ context }: Route.LoaderArgs) {
   if (getUser(context)) throw redirect("/dashboard");

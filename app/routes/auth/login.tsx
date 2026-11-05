@@ -4,8 +4,9 @@ import type { Route } from "./+types/login";
 import { getSupabase, getUser, safeRedirectPath } from "~/features/auth/auth.server";
 import { AuthForm } from "~/features/auth/components/auth-form";
 import { parseCredentials } from "~/features/auth/schema";
+import { pageTitle } from "~/lib/site";
 
-export const meta: Route.MetaFunction = () => [{ title: "Log in" }];
+export const meta: Route.MetaFunction = () => [{ title: pageTitle("Log in") }];
 
 export function loader({ request, context }: Route.LoaderArgs) {
   const redirectTo = safeRedirectPath(new URL(request.url).searchParams.get("redirectTo"));

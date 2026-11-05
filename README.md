@@ -1,10 +1,26 @@
-# React Router App
+# React Router + Cloudflare + Supabase Template
 
-Full-stack React app built with React Router v8 (framework mode) on **Cloudflare Workers**,
+Full-stack React starter built with React Router v8 (framework mode) on **Cloudflare Workers**,
 Supabase (auth + Postgres), Drizzle ORM (via Cloudflare Hyperdrive), shadcn/ui, and Tailwind CSS.
 
-Conventions for humans and AI agents live in [AGENTS.md](./AGENTS.md) — read it before
-contributing.
+Includes: email/password auth (signup, login, logout, email confirmation, password reset), a
+protected area, and an example **notes** feature showing the full pattern (table → queries →
+validation → routes → UI → tests). Conventions for humans and AI agents live in
+[AGENTS.md](./AGENTS.md) — read it before contributing.
+
+## Starting a new project from this template
+
+1. On GitHub: **Use this template → Create a new repository**, then clone it.
+2. **Rename** (each project needs its own names, or deploys will overwrite each other):
+   - `package.json` → `name`
+   - `wrangler.jsonc` → `name` (becomes `<name>.<account>.workers.dev`)
+   - `app/lib/site.ts` → app name and description (header, page titles)
+   - this README's title
+3. **Keep or remove the notes example.** To remove it, follow "Remove the notes example" in
+   [AGENTS.md](./AGENTS.md#recipes).
+4. Create a **new Supabase project** and follow the setup below.
+5. Follow "Deploying to Cloudflare" — create a **new Hyperdrive config** for this project and
+   paste its id into `wrangler.jsonc`.
 
 ## Getting started (local)
 
@@ -24,17 +40,20 @@ npm run dev            # http://localhost:5173 — runs in workerd, the real Wor
      **Session pooler** connection string (works on IPv4 networks). Usually the same value.
 2. **Redirect URLs** — Authentication → URL Configuration: set the Site URL and add
    `http://localhost:5173/auth/confirm` (plus your production `/auth/confirm` URL).
-3. **Email template (recommended)** — so confirmation links work on any device, set the
-   "Confirm signup" template's link to:
-   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
+3. **Email templates (recommended)** — so email links work on any device/browser, edit these
+   templates under Authentication → Emails and set the link to:
+   - "Confirm signup": `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
+   - "Reset password":
+     `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/auth/reset-password`
 4. **Email sending (before real users sign up)** — Supabase's built-in email sender is for
    testing only: it only delivers to your project team's addresses and is heavily rate-limited.
    Set up custom SMTP (Authentication → SMTP Settings) with a provider such as Resend or Brevo.
-5. **Migrations** — after adding tables to `app/db/schema.ts`:
+5. **Create the tables** (includes the example `notes` table):
    ```bash
-   npm run db:generate   # writes SQL to drizzle/
-   npm run db:migrate    # applies it to DATABASE_URL
+   npm run db:migrate    # applies drizzle/*.sql to DATABASE_URL
    ```
+   Later, after changing `app/db/schema.ts`: `npm run db:generate`, review the SQL, then
+   `npm run db:migrate`.
 
 ## Deploying to Cloudflare (one-time setup)
 

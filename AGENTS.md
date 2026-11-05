@@ -55,14 +55,20 @@ app/
     layout.tsx             # App shell (header + <Outlet />); loads the current user
     protected-layout.tsx   # Wraps signed-in-only routes (requireUserMiddleware)
     home.tsx               # /
-    auth/                  # /auth/login, /auth/signup, /auth/confirm, /auth/logout
+    auth/                  # login, signup, forgot/reset password, confirm (email links), logout
     dashboard/index.tsx    # /dashboard (example protected page)
+    notes/                 # /notes, /notes/new, /notes/:id  ← REFERENCE FEATURE (see below)
     not-found.tsx          # catch-all 404
   features/                # Business logic grouped by domain (one folder per feature)
     auth/
       auth.server.ts       # auth middleware + getUser/requireUser/getSupabase helpers
       schema.ts            # Zod schemas for auth forms
-      components/          # auth UI (AuthForm)
+      components/          # auth UI (AuthForm, ForgotPasswordForm, ResetPasswordForm)
+    notes/                 # REFERENCE FEATURE — copy its shape for new features
+      notes.server.ts      # Drizzle queries, all scoped to the owner
+      schema.ts            # Zod form schema + id schema + types
+      utils.ts             # pure helpers (date formatting)
+      components/          # NoteForm, NoteList
     <feature>/
       components/          # UI specific to this feature
       <feature>.server.ts  # Server-only: Drizzle queries, external APIs
@@ -77,6 +83,8 @@ app/
   lib/
     env.server.ts          # Zod-validated secrets — import `env` from here
     supabase.server.ts     # per-request Supabase server client
+    forms.ts               # parseForm(schema, formData) → { data, errors }
+    site.ts                # app name/description + pageTitle() — the only place branding lives
     utils.ts               # `cn()` class-name helper (shadcn)
 drizzle/                   # Generated SQL migrations — commit them, never edit by hand
 public/                    # Static files served as-is
@@ -182,8 +190,16 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 - Validate all untrusted input with Zod before using it: form data in actions, search params,
   JSON bodies, third-party API responses.
 - Define schemas in `features/<feature>/schema.ts`; derive types with `z.infer` rather than
-  writing them twice. Return field errors from actions with `data({ errors }, { status: 400 })`
-  (see `features/auth/schema.ts` + `routes/auth/login.tsx`).
+  writing them twice.
+- In actions, validate with `parseForm` from `~/lib/forms` and return field errors with a 400:
+  ```ts
+  const { data: input, errors } = parseForm(noteSchema, await request.formData());
+  if (!input) return data({ errors }, { status: 400 });
+  ```
+  Components show `errors.<field>[0]` under each input and `errors.form[0]` for general errors.
+- Validate URL params before they reach the database (e.g. `noteIdSchema` → 404 on bad ids).
+- One route, several buttons: give each `<button name="intent" value="…">` and `switch` on
+  `formData.get("intent")` in the action (see `routes/notes/detail.tsx`).
 
 ## Environment variables & secrets
 
@@ -241,17 +257,30 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 
 **Add a page**
 
-1. Create `app/routes/<path>.tsx` with `meta` + default component.
+1. Create `app/routes/<path>.tsx` with `meta` (title via `pageTitle()` from `~/lib/site`) +
+   default component.
 2. Register it in `app/routes.ts` — inside `protected-layout.tsx` if it requires sign-in.
 3. Run `npm run typecheck` to generate `./+types/<file>`.
 
-**Add a feature with data**
+**Add a feature with data** — mirror the **notes** feature file-for-file:
 
-1. Add the table(s) to `app/db/schema.ts` (with `.enableRLS()`), then `npm run db:generate`.
-2. Create `app/features/<feature>/` with `schema.ts` (Zod), `<feature>.server.ts` (Drizzle
-   queries taking `db: Db`, always filtered by the user), and `components/`.
-3. Add route(s) whose loaders/actions call those functions with `getDb(context)`.
-4. Add tests for the schema and any non-trivial logic.
+| Notes file                            | What to copy                                          |
+| ------------------------------------- | ----------------------------------------------------- |
+| `app/db/schema.ts` → `notes` table    | table with `ownerId` → `authUsers.id`, `.enableRLS()` |
+| `features/notes/schema.ts`            | Zod form schema, id schema, exported types            |
+| `features/notes/notes.server.ts`      | queries taking `db: Db`, every one filtered by owner  |
+| `features/notes/components/*`         | form (errors + pending state) and list (empty state)  |
+| `routes/notes/{index,new,detail}.tsx` | list / create / view+update+delete via `intent`       |
+| `features/notes/schema.test.ts`       | schema tests                                          |
+
+1. Add the table to `app/db/schema.ts`, run `npm run db:generate`, review the SQL, `db:migrate`.
+2. Create the feature folder and routes as above; register routes inside `protected-layout`.
+3. Add tests, then run the definition-of-done checks.
+
+**Remove the notes example** (when starting a real project): delete `app/features/notes/`,
+`app/routes/notes/`, the `notes` routes in `routes.ts`, the `notes` table in `app/db/schema.ts`,
+the "Notes" links in `site-header.tsx` and `routes/dashboard/index.tsx`, and the files in
+`drizzle/` (then `npm run db:generate` for your own first migration).
 
 **Add a secret/env var:** add it to the Zod schema in `app/lib/env.server.ts`, to
 `.env.example`, to your local `.env`, then `npx wrangler secret put <NAME>` for production.
