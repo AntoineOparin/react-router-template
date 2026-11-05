@@ -16,8 +16,8 @@ validation → routes → UI → tests). Conventions for humans and AI agents li
    - `wrangler.jsonc` → `name` (becomes `<name>.<account>.workers.dev`)
    - `app/lib/site.ts` → app name and description (header, page titles)
    - this README's title
-3. **Keep or remove the notes example.** To remove it, follow "Remove the notes example" in
-   [AGENTS.md](./AGENTS.md#recipes).
+3. **Keep or remove the notes example.** To remove it, follow
+   [.claude/skills/remove-notes-example/SKILL.md](./.claude/skills/remove-notes-example/SKILL.md).
 4. Create a **new Supabase project** and follow the setup below.
 5. Follow "Deploying to Cloudflare" — create a **new Hyperdrive config** for this project and
    paste its id into `wrangler.jsonc`.
@@ -82,6 +82,55 @@ URLs and set it as the Site URL.
 **Automatic deploys:** connect the GitHub repo in the Cloudflare dashboard (Workers & Pages →
 your Worker → Settings → Builds) to deploy on every push to `main`, with preview URLs for
 branches. Build command: `npm run build`, deploy command: `npx wrangler deploy`.
+
+## Folder structure
+
+```
+workers/app.ts             # Cloudflare Worker entry — hands requests to React Router
+wrangler.jsonc             # Worker config: bindings (HYPERDRIVE), compatibility flags
+app/
+  root.tsx                 # HTML shell, root ErrorBoundary, root middleware (db + auth)
+  routes.ts                # ALL routes are registered here
+  app.css                  # Tailwind + shadcn theme tokens (light + .dark)
+  routes/                  # Route modules ONLY — thin glue between URL and features
+    layout.tsx             # App shell (header + <Outlet />); loads the current user
+    protected-layout.tsx   # Wraps signed-in-only routes (requireUserMiddleware)
+    home.tsx               # /
+    auth/                  # login, signup, forgot/reset password, confirm (email links), logout
+    dashboard/index.tsx    # /dashboard (example protected page)
+    notes/                 # /notes, /notes/new, /notes/:id  ← REFERENCE FEATURE (see below)
+    not-found.tsx          # catch-all 404
+  features/                # Business logic grouped by domain (one folder per feature)
+    auth/
+      auth.server.ts       # auth middleware + getUser/requireUser/getSupabase helpers
+      schema.ts            # Zod schemas for auth forms
+      components/          # auth UI (AuthForm, ForgotPasswordForm, ResetPasswordForm)
+    notes/                 # REFERENCE FEATURE — copy its shape for new features
+      notes.server.ts      # Drizzle queries, all scoped to the owner
+      schema.ts            # Zod form schema + id schema + types
+      utils.ts             # pure helpers (date formatting)
+      components/          # NoteForm, NoteList
+    <feature>/
+      components/          # UI specific to this feature
+      <feature>.server.ts  # Server-only: Drizzle queries, external APIs
+      schema.ts            # Zod schemas + inferred types (safe on client and server)
+      utils.ts             # Pure helpers for this feature
+  components/
+    ui/                    # shadcn/ui primitives (button, input, card…) — generated, may be edited
+    layout/                # App-shell pieces (site header, footer, nav)
+  db/
+    schema.ts              # Drizzle table definitions (ALL tables)
+    client.server.ts       # per-request Drizzle client: dbMiddleware + getDb(context)
+  lib/
+    env.server.ts          # Zod-validated secrets — import `env` from here
+    supabase.server.ts     # per-request Supabase server client
+    forms.ts               # parseForm(schema, formData) → { data, errors }
+    site.ts                # app name/description + pageTitle() — the only place branding lives
+    utils.ts               # `cn()` class-name helper (shadcn)
+drizzle/                   # Generated SQL migrations — commit them, never edit by hand
+public/                    # Static files served as-is
+.react-router/, worker-configuration.d.ts   # GENERATED types — never edit, gitignored
+```
 
 ## Scripts
 

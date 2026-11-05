@@ -8,12 +8,9 @@ exactly; when the codebase and this file disagree, ask before "fixing" either.
 - **React Router v8, Framework Mode** (SSR on, see `react-router.config.ts`) on Vite
 - **Runs on Cloudflare Workers** (`wrangler.jsonc`, entry `workers/app.ts`). `npm run dev` runs
   the server code in `workerd`, the real Workers runtime — not Node.
-- React 19, TypeScript (strict), Tailwind CSS v4, **shadcn/ui** (Radix-based) components
 - **Supabase** for auth (`@supabase/ssr`, cookie sessions) and Postgres hosting
 - **Drizzle ORM** (`postgres` driver) for all database access, through **Cloudflare Hyperdrive**
 - **Zod** for validating anything untrusted (form data, env vars, search params, API payloads)
-- **Vitest** + React Testing Library for tests
-- ESLint + Prettier (sorts Tailwind classes); husky + lint-staged format/lint staged files on commit
 
 For React Router APIs, use the `react-router` skill in `.agents/skills/react-router/SKILL.md` and
 the docs shipped with the installed version in `node_modules/react-router/docs/`. Do not rely on
@@ -21,75 +18,17 @@ memory of older versions (v6/Remix) — check the installed docs.
 
 ## Commands
 
-```bash
-npm run dev          # dev server at http://localhost:5173 (needs .env — see .env.example)
-npm run check        # typecheck + lint + format check
-npm test             # run tests once (npm run test:watch while developing)
-npm run format       # auto-format everything with Prettier
-npm run lint:fix     # auto-fix lint issues
-npm run build        # production build
-npm run preview      # build + run the production build locally in workerd
-npm run deploy       # build + deploy to Cloudflare (wrangler deploy)
-npm run cf-typegen   # regenerate Env types after editing wrangler.jsonc
-
-npm run db:generate  # create a SQL migration from app/db/schema.ts changes
-npm run db:migrate   # apply pending migrations to DATABASE_URL
-npm run db:studio    # browse the database
-
-npx shadcn@latest add <component>   # add a shadcn/ui component into app/components/ui/
-```
+Scripts are in `package.json` (summarized in README.md).
 
 **Definition of done:** run `npm run format`, then `npm run check` and `npm test`, and fix
 everything they report. CI runs the same checks plus `npm run build` on every PR.
 
 ## Folder structure
 
-```
-workers/app.ts             # Cloudflare Worker entry — hands requests to React Router
-wrangler.jsonc             # Worker config: bindings (HYPERDRIVE), compatibility flags
-app/
-  root.tsx                 # HTML shell, root ErrorBoundary, root middleware (db + auth)
-  routes.ts                # ALL routes are registered here
-  app.css                  # Tailwind + shadcn theme tokens (light + .dark)
-  routes/                  # Route modules ONLY — thin glue between URL and features
-    layout.tsx             # App shell (header + <Outlet />); loads the current user
-    protected-layout.tsx   # Wraps signed-in-only routes (requireUserMiddleware)
-    home.tsx               # /
-    auth/                  # login, signup, forgot/reset password, confirm (email links), logout
-    dashboard/index.tsx    # /dashboard (example protected page)
-    notes/                 # /notes, /notes/new, /notes/:id  ← REFERENCE FEATURE (see below)
-    not-found.tsx          # catch-all 404
-  features/                # Business logic grouped by domain (one folder per feature)
-    auth/
-      auth.server.ts       # auth middleware + getUser/requireUser/getSupabase helpers
-      schema.ts            # Zod schemas for auth forms
-      components/          # auth UI (AuthForm, ForgotPasswordForm, ResetPasswordForm)
-    notes/                 # REFERENCE FEATURE — copy its shape for new features
-      notes.server.ts      # Drizzle queries, all scoped to the owner
-      schema.ts            # Zod form schema + id schema + types
-      utils.ts             # pure helpers (date formatting)
-      components/          # NoteForm, NoteList
-    <feature>/
-      components/          # UI specific to this feature
-      <feature>.server.ts  # Server-only: Drizzle queries, external APIs
-      schema.ts            # Zod schemas + inferred types (safe on client and server)
-      utils.ts             # Pure helpers for this feature
-  components/
-    ui/                    # shadcn/ui primitives (button, input, card…) — generated, may be edited
-    layout/                # App-shell pieces (site header, footer, nav)
-  db/
-    schema.ts              # Drizzle table definitions (ALL tables)
-    client.server.ts       # per-request Drizzle client: dbMiddleware + getDb(context)
-  lib/
-    env.server.ts          # Zod-validated secrets — import `env` from here
-    supabase.server.ts     # per-request Supabase server client
-    forms.ts               # parseForm(schema, formData) → { data, errors }
-    site.ts                # app name/description + pageTitle() — the only place branding lives
-    utils.ts               # `cn()` class-name helper (shadcn)
-drizzle/                   # Generated SQL migrations — commit them, never edit by hand
-public/                    # Static files served as-is
-.react-router/, worker-configuration.d.ts   # GENERATED types — never edit, gitignored
-```
+Annotated map: [README.md](./README.md#folder-structure). Key rules: `app/routes/` holds route
+modules only; business logic lives in `app/features/<feature>/` (copy the shape of
+`features/notes/`, the reference feature). Branding (app name, description, `pageTitle()`) lives
+only in `app/lib/site.ts`.
 
 ## Runtime: Cloudflare Workers (read before writing server code)
 
@@ -277,10 +216,8 @@ export default function ProjectDetail({ loaderData }: Route.ComponentProps) {
 2. Create the feature folder and routes as above; register routes inside `protected-layout`.
 3. Add tests, then run the definition-of-done checks.
 
-**Remove the notes example** (when starting a real project): delete `app/features/notes/`,
-`app/routes/notes/`, the `notes` routes in `routes.ts`, the `notes` table in `app/db/schema.ts`,
-the "Notes" links in `site-header.tsx` and `routes/dashboard/index.tsx`, and the files in
-`drizzle/` (then `npm run db:generate` for your own first migration).
+**Remove the notes example** (when starting a real project): follow
+`.claude/skills/remove-notes-example/SKILL.md`.
 
 **Add a secret/env var:** add it to the Zod schema in `app/lib/env.server.ts`, to
 `.env.example`, to your local `.env`, then `npx wrangler secret put <NAME>` for production.
